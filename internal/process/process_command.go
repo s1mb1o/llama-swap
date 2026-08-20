@@ -264,6 +264,16 @@ func (p *ProcessCommand) run() {
 					// or the upstream exit takes the process down.
 					runResp = req.respond
 
+					// Seed lastUse from readiness. It is otherwise written
+					// only when a proxied request completes, and is never
+					// initialised, so a process arrives here carrying either
+					// zero or a stale timestamp from a previous load. The TTL
+					// goroutine below would then find time.Since(lastUse)
+					// already past the TTL and unload on its first tick —
+					// discarding a model that had just spent minutes loading.
+					// Seeding here makes the TTL measure idle time since ready.
+					p.lastUse.Store(time.Now().UnixNano())
+
 					// Start TTL goroutine if configured — self-terminates
 					// when state leaves StateReady.
 					if p.config.UnloadAfter > 0 {
