@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/mostlygeek/llama-swap/internal/event"
 	"github.com/mostlygeek/llama-swap/internal/perf"
+	"github.com/mostlygeek/llama-swap/internal/process"
 	"github.com/mostlygeek/llama-swap/internal/shared"
 	"github.com/mostlygeek/llama-swap/internal/store"
 )
@@ -87,6 +89,63 @@ func (s *Server) handleAPIUnloadModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.local.Unload(apiUnloadTimeout, realName)
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+// apiLoadProbePath is the upstream path used to force a load. Its response is
+// discarded: upstreams disagree on which paths they serve (llama-server has a
+// GET / web UI, vLLM answers 404 there), so no single path's status code is a
+// reliable "did it load" signal. Process state is.
+const apiLoadProbePath = "/health"
+
+// discardWriter is an http.ResponseWriter that drops everything written to it,
+// for internal probe requests whose response is never returned to a client.
+type discardWriter struct {
+	header http.Header
+}
+
+func (d *discardWriter) Header() http.Header         { return d.header }
+func (d *discardWriter) Write(p []byte) (int, error) { return len(p), nil }
+func (d *discardWriter) WriteHeader(int)             {}
+
+// handleAPILoadModel loads a single named local model and reports whether it
+// reached ready state. It blocks for the duration of the load.
+//
+// The load is driven through the normal dispatch path so group, swap and
+// eviction semantics are identical to those of a real request; only the probe
+// response is thrown away. This exists so the UI can start a model without
+// having to interpret an arbitrary upstream's reply to GET /.
+func (s *Server) handleAPILoadModel(w http.ResponseWriter, r *http.Request) {
+	requested := strings.TrimPrefix(r.PathValue("model"), "/")
+	realName, found := s.cfg.RealModelName(requested)
+	if !found {
+		shared.SendResponse(w, r, http.StatusNotFound, "model not found")
+		return
+	}
+	if !s.local.Handles(realName) {
+		shared.SendResponse(w, r, http.StatusNotFound, "no local server found for requested model")
+		return
+	}
+
+	// Pin the resolved model so the router skips body/query extraction.
+	probe := r.Clone(shared.SetContext(r.Context(), shared.ReqContextData{
+		Model:    realName,
+		ModelID:  realName,
+		Metadata: make(map[string]string),
+	}))
+	probe.Method = http.MethodGet
+	probe.Body = http.NoBody
+	probe.ContentLength = 0
+	probe.URL = &url.URL{Path: apiLoadProbePath}
+	probe.RequestURI = ""
+	s.local.ServeHTTP(&discardWriter{header: make(http.Header)}, probe)
+
+	if state, ok := s.local.RunningModels()[realName]; !ok || state != process.StateReady {
+		shared.SendResponse(w, r, http.StatusServiceUnavailable,
+			fmt.Sprintf("model %s did not become ready", realName))
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
