@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -12,6 +13,7 @@ import (
 	"github.com/mostlygeek/llama-swap/internal/chain"
 	"github.com/mostlygeek/llama-swap/internal/config"
 	"github.com/mostlygeek/llama-swap/internal/shared"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -211,6 +213,82 @@ func applyFilters(body []byte, requested, useModelName string, f config.Filters)
 	for _, key := range byIDKeys {
 		if body, err = sjson.SetBytes(body, key, byID[key]); err != nil {
 			return nil, fmt.Errorf("error setting parameter %s in request", key)
+		}
+	}
+
+	if allow := f.SanitizedAllowTools(); len(allow) > 0 {
+		if body, err = filterTools(body, allow); err != nil {
+			return nil, err
+		}
+	}
+
+	return body, nil
+}
+
+// filterTools drops every tool in the request whose function name is not in
+// allow, matched case-insensitively. Tool lists are supplied by the client, so
+// this is the only place a server-side policy on them can be enforced.
+//
+// Requests carrying no tools array are left untouched. When filtering empties
+// the list, "tools" and "tool_choice" are removed outright rather than left as
+// an empty array, which some upstreams reject. A "tool_choice" pinning a tool
+// that was just removed is reset to "auto" for the same reason.
+func filterTools(body []byte, allow []string) ([]byte, error) {
+	tools := gjson.GetBytes(body, "tools")
+	if !tools.Exists() || !tools.IsArray() {
+		return body, nil
+	}
+	original := tools.Array()
+	if len(original) == 0 {
+		return body, nil
+	}
+
+	allowed := make(map[string]bool, len(allow))
+	for _, name := range allow {
+		allowed[strings.ToLower(name)] = true
+	}
+
+	kept := make([]json.RawMessage, 0, len(original))
+	keptNames := make(map[string]bool, len(original))
+	for _, tool := range original {
+		// OpenAI nests the name under "function"; the Anthropic-style
+		// /v1/messages payload puts it at the top level.
+		name := tool.Get("function.name").String()
+		if name == "" {
+			name = tool.Get("name").String()
+		}
+		if allowed[strings.ToLower(name)] {
+			kept = append(kept, json.RawMessage(tool.Raw))
+			keptNames[name] = true
+		}
+	}
+
+	if len(kept) == len(original) {
+		return body, nil
+	}
+
+	var err error
+	if len(kept) == 0 {
+		if body, err = sjson.DeleteBytes(body, "tools"); err != nil {
+			return nil, fmt.Errorf("error removing tools from request: %w", err)
+		}
+		if body, err = sjson.DeleteBytes(body, "tool_choice"); err != nil {
+			return nil, fmt.Errorf("error removing tool_choice from request: %w", err)
+		}
+		return body, nil
+	}
+
+	raw, err := json.Marshal(kept)
+	if err != nil {
+		return nil, fmt.Errorf("error re-encoding filtered tools: %w", err)
+	}
+	if body, err = sjson.SetRawBytes(body, "tools", raw); err != nil {
+		return nil, fmt.Errorf("error writing filtered tools: %w", err)
+	}
+
+	if pinned := gjson.GetBytes(body, "tool_choice.function.name"); pinned.Exists() && !keptNames[pinned.String()] {
+		if body, err = sjson.SetBytes(body, "tool_choice", "auto"); err != nil {
+			return nil, fmt.Errorf("error resetting tool_choice: %w", err)
 		}
 	}
 

@@ -26,6 +26,44 @@ type Filters struct {
 	// which alias the client used. Applied after SetParams, so it can override those values.
 	// Protected params (like "model") cannot be set.
 	SetParamsByID map[string]map[string]any `yaml:"setParamsByID"`
+
+	// AllowTools restricts which tools a request may carry. When non-empty, any
+	// tool whose function name is not listed is removed from the request before
+	// it is forwarded upstream. Matching is exact and case-insensitive. An empty
+	// list (the default) leaves tools untouched.
+	//
+	// Tool names are chosen by the client, not the server, so list every spelling
+	// the clients in use actually send.
+	AllowTools []string `yaml:"allowTools"`
+}
+
+// SanitizedAllowTools returns the tool allowlist with surrounding whitespace,
+// empty entries and case-insensitive duplicates removed. It returns nil when no
+// allowlist is configured, which means "do not filter tools".
+func (f Filters) SanitizedAllowTools() []string {
+	if len(f.AllowTools) == 0 {
+		return nil
+	}
+
+	cleaned := make([]string, 0, len(f.AllowTools))
+	seen := make(map[string]bool)
+
+	for _, name := range f.AllowTools {
+		trimmed := strings.TrimSpace(name)
+		lower := strings.ToLower(trimmed)
+		if trimmed == "" || seen[lower] {
+			continue
+		}
+		seen[lower] = true
+		cleaned = append(cleaned, trimmed)
+	}
+
+	if len(cleaned) == 0 {
+		return nil
+	}
+
+	slices.Sort(cleaned)
+	return cleaned
 }
 
 // SanitizedStripParams returns a sorted list of parameters to strip,

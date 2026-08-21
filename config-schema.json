@@ -344,6 +344,14 @@
                     "filters": {
                         "type": "object",
                         "properties": {
+                            "allowTools": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "default": [],
+                                "description": "List of tool names a request may carry. When non-empty, any tool whose function name is not listed is removed from the request before it is forwarded upstream. Matching is exact and case-insensitive. Tool names are chosen by the client, so list every spelling your clients actually send. Omit or leave empty to not filter tools."
+                            },
                             "stripParams": {
                                 "type": "string",
                                 "default": "",
@@ -368,7 +376,7 @@
                         },
                         "additionalProperties": false,
                         "default": {},
-                        "description": "Dictionary of filter settings. Supports stripParams, setParams, and setParamsByID."
+                        "description": "Dictionary of filter settings. Supports stripParams, setParams, setParamsByID, and allowTools."
                     },
                     "metadata": {
                         "type": "object",
@@ -528,6 +536,14 @@
                     "filters": {
                         "type": "object",
                         "properties": {
+                            "allowTools": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "default": [],
+                                "description": "List of tool names a request may carry. When non-empty, any tool whose function name is not listed is removed from the request before it is forwarded upstream. Matching is exact and case-insensitive. Tool names are chosen by the client, so list every spelling your clients actually send. Omit or leave empty to not filter tools."
+                            },
                             "stripParams": {
                                 "type": "string",
                                 "default": "",
@@ -543,7 +559,7 @@
                         },
                         "additionalProperties": false,
                         "default": {},
-                        "description": "Dictionary of filter settings for peer requests. Supports stripParams and setParams."
+                        "description": "Dictionary of filter settings for peer requests. Supports stripParams, setParams, and allowTools."
                     },
                     "timeouts": {
                         "type": "object",
