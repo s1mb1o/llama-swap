@@ -364,3 +364,31 @@ func TestServer_APIEvents_InitialPayload(t *testing.T) {
 		}
 	}
 }
+
+func TestServer_ModelStatus_Folder(t *testing.T) {
+	s := newTestServer(newStubRouter(nil, ""), newStubRouter(nil, ""))
+	s.cfg.Models = map[string]config.ModelConfig{
+		"tagged":   {Metadata: map[string]any{"folder": "Chat"}},
+		"untagged": {},
+		"badtype":  {Metadata: map[string]any{"folder": 42}},
+	}
+
+	got := map[string]string{}
+	for _, m := range s.modelStatus() {
+		got[m.Id] = m.Folder
+	}
+	want := map[string]string{"tagged": "Chat", "untagged": "", "badtype": ""}
+	for id, folder := range want {
+		if got[id] != folder {
+			t.Errorf("%s: folder = %q, want %q", id, got[id], folder)
+		}
+	}
+
+	b, err := json.Marshal(s.modelStatus())
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if n := strings.Count(string(b), `"folder"`); n != 1 {
+		t.Errorf("payload has %d folder keys, want 1 (omitempty); body=%s", n, b)
+	}
+}

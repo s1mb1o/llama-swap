@@ -21,6 +21,7 @@ export interface Model {
   peerID: string;
   aliases?: string[];
   capabilities?: ModelCapabilities;
+  folder?: string;
 }
 
 export interface TokenMetrics {

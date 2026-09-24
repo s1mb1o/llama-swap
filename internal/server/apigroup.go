@@ -28,6 +28,8 @@ type apiModel struct {
 	PeerID       string         `json:"peerID"`
 	Aliases      []string       `json:"aliases,omitempty"`
 	Capabilities map[string]any `json:"capabilities,omitempty"`
+	// Folder groups the model in the UI sidebar; from metadata.folder.
+	Folder string `json:"folder,omitempty"`
 }
 
 // modelStatus returns every configured model joined with its current process
@@ -49,6 +51,7 @@ func (s *Server) modelStatus() []apiModel {
 			state = string(st)
 		}
 		_, capsMap, _, _ := renderCapabilities(mc.Capabilities)
+		folder, _ := mc.Metadata["folder"].(string)
 		models = append(models, apiModel{
 			Id:           id,
 			Name:         mc.Name,
@@ -57,6 +60,7 @@ func (s *Server) modelStatus() []apiModel {
 			Unlisted:     mc.Unlisted,
 			Aliases:      mc.Aliases,
 			Capabilities: capsMap,
+			Folder:       folder,
 		})
 	}
 

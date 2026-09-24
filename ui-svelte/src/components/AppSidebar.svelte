@@ -4,12 +4,13 @@
   import * as Sidebar from "$lib/components/ui/sidebar/index.js";
   import * as Collapsible from "$lib/components/ui/collapsible/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
+  import { cn } from "$lib/utils.js";
   import { toggleTheme, themeMode, appTitle } from "../stores/theme";
   import { currentRoute } from "../stores/route";
   import { playgroundActivity } from "../stores/playgroundActivity";
   import { performanceEnabled, models } from "../stores/api";
   import { showUnlistedModels } from "../stores/modelDisplay";
-  import { modelsMenuOpen } from "../stores/sidebar";
+  import { modelsMenuOpen, openModelFolders } from "../stores/sidebar";
   import type { Model } from "../lib/types";
   import ConnectionStatus from "./ConnectionStatus.svelte";
 
@@ -52,7 +53,53 @@
     yellow: "bg-warning",
     green: "bg-success",
   };
+
+  // Models grouped by metadata.folder. Untagged models go last, under "Other".
+  const OTHER_FOLDER = "Other";
+  let hasFolders = $derived(visibleModels.some((m) => m.folder));
+  let modelFolders = $derived.by(() => {
+    const byFolder = new Map<string, Model[]>();
+    for (const model of visibleModels) {
+      const name = model.folder || OTHER_FOLDER;
+      byFolder.set(name, [...(byFolder.get(name) ?? []), model]);
+    }
+    return [...byFolder.entries()]
+      .map(([name, models]) => ({ name, models }))
+      .sort((a, b) => {
+        if (a.name === OTHER_FOLDER) return 1;
+        if (b.name === OTHER_FOLDER) return -1;
+        return a.name.localeCompare(b.name, undefined, { numeric: true });
+      });
+  });
+
+  function folderDotColor(folderModels: Model[]): DotColor {
+    const colors = folderModels.map(statusDotColor);
+    if (colors.includes("yellow")) return "yellow";
+    if (colors.includes("green")) return "green";
+    return "grey";
+  }
+
+  function setFolderOpen(name: string, open: boolean): void {
+    openModelFolders.update((names) =>
+      open ? [...names.filter((n) => n !== name), name] : names.filter((n) => n !== name),
+    );
+  }
 </script>
+
+{#snippet modelMenuItem(model: Model)}
+  <Sidebar.MenuSubItem>
+    <Sidebar.MenuSubButton
+      isActive={$currentRoute === `/models/${encodeURIComponent(model.id)}`}
+    >
+      {#snippet child({ props })}
+        <a href="/models/{encodeURIComponent(model.id)}" use:link {...props}>
+          <span class={`size-2 shrink-0 rounded-full ${dotClass[statusDotColor(model)]}`}></span>
+          <span class="flex-1 truncate">{model.id}</span>
+        </a>
+      {/snippet}
+    </Sidebar.MenuSubButton>
+  </Sidebar.MenuSubItem>
+{/snippet}
 
 <Sidebar.Root collapsible="icon">
   <Sidebar.Header>
@@ -136,20 +183,42 @@
               </Sidebar.MenuButton>
               <Collapsible.Content>
                 <Sidebar.MenuSub>
-                  {#each visibleModels as model (model.id)}
-                    <Sidebar.MenuSubItem>
-                      <Sidebar.MenuSubButton
-                        isActive={$currentRoute === `/models/${encodeURIComponent(model.id)}`}
-                      >
-                        {#snippet child({ props })}
-                          <a href="/models/{encodeURIComponent(model.id)}" use:link {...props}>
-                            <span class={`size-2 shrink-0 rounded-full ${dotClass[statusDotColor(model)]}`}></span>
-                            <span class="flex-1 truncate">{model.id}</span>
-                          </a>
-                        {/snippet}
-                      </Sidebar.MenuSubButton>
-                    </Sidebar.MenuSubItem>
-                  {/each}
+                  {#if hasFolders}
+                    {#each modelFolders as folder (folder.name)}
+                      {@const isOpen = $openModelFolders.includes(folder.name)}
+                      <Sidebar.MenuSubItem>
+                        <Collapsible.Root open={isOpen} onOpenChange={(v) => setFolderOpen(folder.name, v)}>
+                          <Sidebar.MenuSubButton>
+                            {#snippet child({ props })}
+                              <button
+                                type="button"
+                                {...props}
+                                class={cn(props.class as string, "w-full")}
+                                aria-expanded={isOpen}
+                                onclick={() => setFolderOpen(folder.name, !isOpen)}
+                              >
+                                <span class={`size-2 shrink-0 rounded-full ${dotClass[folderDotColor(folder.models)]}`}></span>
+                                <span class="flex-1 truncate text-left">{folder.name}</span>
+                                <span class="text-muted-foreground text-xs tabular-nums">{folder.models.length}</span>
+                                <ChevronRight class="transition-transform duration-200 {isOpen ? 'rotate-90' : ''}" />
+                              </button>
+                            {/snippet}
+                          </Sidebar.MenuSubButton>
+                          <Collapsible.Content>
+                            <Sidebar.MenuSub class="mr-0 pr-0">
+                              {#each folder.models as model (model.id)}
+                                {@render modelMenuItem(model)}
+                              {/each}
+                            </Sidebar.MenuSub>
+                          </Collapsible.Content>
+                        </Collapsible.Root>
+                      </Sidebar.MenuSubItem>
+                    {/each}
+                  {:else}
+                    {#each visibleModels as model (model.id)}
+                      {@render modelMenuItem(model)}
+                    {/each}
+                  {/if}
                 </Sidebar.MenuSub>
               </Collapsible.Content>
             </Collapsible.Root>
