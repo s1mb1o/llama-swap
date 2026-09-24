@@ -1,5 +1,5 @@
-// Helpers for the sidebar CPU / memory sparklines.
-import type { SysStat } from "./types";
+// Helpers for the sidebar GPU / CPU / memory sparklines.
+import type { GpuStat, SysStat } from "./types";
 
 /** Mean utilization across all cores, in percent. */
 export function cpuAvgPct(s: SysStat): number {
@@ -21,6 +21,21 @@ export function swapUsedPct(s: SysStat): number | null {
 export interface SparkPoint {
   t: number; // epoch ms
   v: number;
+}
+
+/**
+ * GPU utilization points, one series per GPU id, in first-seen order.
+ * Each GPU in a snapshot has its own timestamp, so series are kept apart
+ * instead of being averaged per timestamp.
+ */
+export function gpuUtilSeries(gpu: GpuStat[]): SparkPoint[][] {
+  const byId = new Map<number, SparkPoint[]>();
+  for (const g of gpu) {
+    const points = byId.get(g.id) ?? [];
+    points.push({ t: Date.parse(g.timestamp), v: g.gpu_util_pct });
+    byId.set(g.id, points);
+  }
+  return [...byId.values()];
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { cpuAvgPct, memUsedPct, swapUsedPct, sparklinePath } from "./sysStats";
-import type { SysStat } from "./types";
+import { cpuAvgPct, memUsedPct, swapUsedPct, gpuUtilSeries, sparklinePath } from "./sysStats";
+import type { GpuStat, SysStat } from "./types";
 
 function stat(overrides: Partial<SysStat> = {}): SysStat {
   return {
@@ -38,6 +38,44 @@ describe("memUsedPct / swapUsedPct", () => {
   it("handles a zero total", () => {
     expect(memUsedPct(stat())).toBe(0);
     expect(swapUsedPct(stat())).toBeNull();
+  });
+});
+
+describe("gpuUtilSeries", () => {
+  function gpu(id: number, timestamp: string, util: number): GpuStat {
+    return {
+      timestamp,
+      id,
+      name: `GPU ${id}`,
+      uuid: "",
+      temp_c: 0,
+      vram_temp_c: 0,
+      gpu_util_pct: util,
+      mem_util_pct: 0,
+      mem_used_mb: 0,
+      mem_total_mb: 0,
+      fan_speed_pct: 0,
+      power_draw_w: 0,
+    };
+  }
+
+  it("splits samples into one series per GPU id", () => {
+    const series = gpuUtilSeries([
+      gpu(0, "2026-09-24T20:00:00.000Z", 10),
+      gpu(1, "2026-09-24T20:00:00.001Z", 90),
+      gpu(0, "2026-09-24T20:00:05.000Z", 20),
+    ]);
+    expect(series).toEqual([
+      [
+        { t: Date.parse("2026-09-24T20:00:00.000Z"), v: 10 },
+        { t: Date.parse("2026-09-24T20:00:05.000Z"), v: 20 },
+      ],
+      [{ t: Date.parse("2026-09-24T20:00:00.001Z"), v: 90 }],
+    ]);
+  });
+
+  it("returns no series for no samples", () => {
+    expect(gpuUtilSeries([])).toEqual([]);
   });
 });
 

@@ -2,29 +2,41 @@
   import { onMount } from "svelte";
   import { link } from "svelte-spa-router";
   import { fetchPerformance, performanceEnabled } from "../stores/api";
-  import { cpuAvgPct, memUsedPct, swapUsedPct, sparklinePath } from "../lib/sysStats";
-  import type { SysStat } from "../lib/types";
+  import { cpuAvgPct, memUsedPct, swapUsedPct, gpuUtilSeries, sparklinePath } from "../lib/sysStats";
+  import type { GpuStat, SysStat } from "../lib/types";
 
   // Sparkline history shown in the sidebar, and how often it is refreshed.
   const WINDOW_MS = 10 * 60 * 1000;
   const POLL_MS = 5000;
 
   let stats = $state<SysStat[]>([]);
+  let gpu = $state<GpuStat[]>([]);
   let enabled = $state(false);
   let timer: ReturnType<typeof setInterval> | null = null;
   let inFlight = false;
+
+  const ts = (x: { timestamp: string }) => Date.parse(x.timestamp);
+  const lastT = (xs: { timestamp: string }[]) => (xs.length > 0 ? ts(xs[xs.length - 1]) : 0);
 
   async function poll(): Promise<void> {
     if (inFlight) return;
     inFlight = true;
     try {
-      const last = stats.at(-1)?.timestamp;
-      const after = last ?? new Date(Date.now() - WINDOW_MS).toISOString();
-      const fresh = (await fetchPerformance(after))?.sys_stats ?? [];
-      if (fresh.length === 0) return;
-      const merged = [...stats, ...fresh];
-      const endT = Date.parse(merged[merged.length - 1].timestamp);
-      stats = merged.filter((s) => Date.parse(s.timestamp) >= endT - WINDOW_MS);
+      // System and GPU samples come from separate tickers, so each list keeps
+      // its own cursor. Ask from the older one and drop what is already held.
+      const sysT = lastT(stats);
+      const gpuT = lastT(gpu);
+      const since = Math.min(sysT || Infinity, gpuT || Infinity);
+      const after = new Date(Number.isFinite(since) ? since : Date.now() - WINDOW_MS).toISOString();
+      const resp = await fetchPerformance(after);
+      const newSys = (resp?.sys_stats ?? []).filter((s) => ts(s) > sysT);
+      const newGpu = (resp?.gpu_stats ?? []).filter((g) => ts(g) > gpuT);
+      if (newSys.length === 0 && newGpu.length === 0) return;
+      const sysAll = [...stats, ...newSys];
+      const gpuAll = [...gpu, ...newGpu];
+      const cutoff = Math.max(lastT(sysAll), lastT(gpuAll)) - WINDOW_MS;
+      stats = sysAll.filter((s) => ts(s) >= cutoff);
+      gpu = gpuAll.filter((g) => ts(g) >= cutoff);
     } finally {
       inFlight = false;
     }
@@ -62,16 +74,22 @@
   });
 
   let latest = $derived(stats.at(-1));
-  let endT = $derived(latest ? Date.parse(latest.timestamp) : 0);
+  let endT = $derived(Math.max(lastT(stats), lastT(gpu)));
 
   function path(value: (s: SysStat) => number): string {
     return sparklinePath(
-      stats.map((s) => ({ t: Date.parse(s.timestamp), v: value(s) })),
+      stats.map((s) => ({ t: ts(s), v: value(s) })),
       endT,
       WINDOW_MS,
     );
   }
 
+  let gpuSeries = $derived(gpuUtilSeries(gpu));
+  let gpuPaths = $derived(gpuSeries.map((points) => sparklinePath(points, endT, WINDOW_MS)));
+  // Mean of each GPU's latest utilization.
+  let gpuUtil = $derived(
+    gpuSeries.length > 0 ? gpuSeries.reduce((sum, points) => sum + points[points.length - 1].v, 0) / gpuSeries.length : 0,
+  );
   let cpuPath = $derived(path(cpuAvgPct));
   let memPath = $derived(path(memUsedPct));
   let swapPath = $derived(latest && swapUsedPct(latest) !== null ? path((s) => swapUsedPct(s) ?? 0) : "");
@@ -108,6 +126,16 @@
     title="Open Performance (last 10 min)"
     class="block rounded-md px-2 py-1.5 text-xs hover:bg-sidebar-accent group-data-[collapsible=icon]:hidden"
   >
+    {#if gpuSeries.length > 0}
+      <div class="mb-2">
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="font-medium">GPU</span>
+          <span class="tabular-nums text-sidebar-foreground">{gpuUtil.toFixed(0)}%</span>
+        </div>
+        {@render sparkline(gpuPaths.map((d) => ({ d, class: "text-primary" })))}
+      </div>
+    {/if}
+
     <div class="flex items-baseline justify-between gap-2">
       <span class="font-medium">CPU</span>
       <span
