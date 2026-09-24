@@ -859,3 +859,14 @@
     background-position: 200% 50%;
   }
 }
+
+/* Sidebar rail drag (sidebar-rail.svelte). Unlayered, so it wins over the utilities. */
+body.sidebar-resizing,
+body.sidebar-resizing * {
+  cursor: col-resize;
+  user-select: none;
+}
+body.sidebar-resizing [data-slot="sidebar-gap"],
+body.sidebar-resizing [data-slot="sidebar-container"] {
+  transition: none;
+}

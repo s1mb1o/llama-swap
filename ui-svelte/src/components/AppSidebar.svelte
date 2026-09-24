@@ -10,7 +10,7 @@
   import { playgroundActivity } from "../stores/playgroundActivity";
   import { performanceEnabled, models } from "../stores/api";
   import { showUnlistedModels } from "../stores/modelDisplay";
-  import { modelsMenuOpen, openModelFolders } from "../stores/sidebar";
+  import { modelsMenuOpen, openModelFolders, sidebarWidth } from "../stores/sidebar";
   import type { Model } from "../lib/types";
   import ConnectionStatus from "./ConnectionStatus.svelte";
   import SidebarPerf from "./SidebarPerf.svelte";
@@ -286,5 +286,5 @@
       </Button>
     </div>
   </Sidebar.Footer>
-  <Sidebar.Rail />
+  <Sidebar.Rail onResize={(width) => sidebarWidth.set(width)} />
 </Sidebar.Root>

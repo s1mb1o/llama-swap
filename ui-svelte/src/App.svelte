@@ -17,6 +17,7 @@
   import { initScreenWidth, initSystemThemeListener, isDarkMode, themeName, appTitle, connectionState } from "./stores/theme";
   import { currentRoute } from "./stores/route";
   import { selectedPlaygroundTab, playgroundTabs } from "./stores/playground";
+  import { sidebarWidth } from "./stores/sidebar";
 
   const routes = {
     "/": Activity,
@@ -93,7 +94,7 @@
 </script>
 
 <Tooltip.Provider>
-  <Sidebar.Provider>
+  <Sidebar.Provider style={$sidebarWidth ? `--sidebar-width: ${$sidebarWidth}px;` : ""}>
     <AppSidebar />
     <Sidebar.Inset class="h-screen min-w-0 overflow-hidden">
       <header
