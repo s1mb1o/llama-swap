@@ -13,6 +13,7 @@
   import { modelsMenuOpen, openModelFolders } from "../stores/sidebar";
   import type { Model } from "../lib/types";
   import ConnectionStatus from "./ConnectionStatus.svelte";
+  import SidebarPerf from "./SidebarPerf.svelte";
 
   function handleTitleChange(newTitle: string): void {
     const sanitized = newTitle.replace(/\n/g, "").trim().substring(0, 64) || "llama-swap";
@@ -253,6 +254,7 @@
   </Sidebar.Content>
 
   <Sidebar.Footer>
+    <SidebarPerf />
     <div
       class="flex items-center justify-between gap-2 px-1 group-data-[collapsible=icon]:flex-col-reverse"
     >
