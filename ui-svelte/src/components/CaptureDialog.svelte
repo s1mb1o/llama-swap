@@ -3,6 +3,8 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import * as Dialog from "$lib/components/ui/dialog/index.js";
   import { copyText } from "../lib/clipboard";
+  import { formatFileSize } from "../lib/format";
+  import { findRequestImages, dataUrlToBlob } from "../lib/captureImages";
 
   interface Props {
     capture: ReqRespCapture | null;
@@ -144,6 +146,39 @@
     reqBodyTab === "pretty" ? requestBodyPretty : requestBodyRaw,
   );
 
+  // Images in the request body. A data: URL is shown through a blob: URL, because
+  // browsers refuse to open a data: URL in a new tab.
+  let requestImages = $derived.by(() => {
+    if (!isRequestJson || !requestBodyRaw) return [];
+    let body: unknown;
+    try {
+      body = JSON.parse(requestBodyRaw);
+    } catch {
+      return [];
+    }
+    return findRequestImages(body).map((img) => {
+      let src = img.url;
+      if (img.url.startsWith("data:")) {
+        try {
+          src = URL.createObjectURL(dataUrlToBlob(img.url));
+        } catch {
+          // malformed payload: the <img> shows "failed to load"
+        }
+      }
+      return { ...img, src };
+    });
+  });
+  let imageInfo: Record<string, string> = $state({});
+
+  $effect(() => {
+    const images = requestImages;
+    return () => {
+      for (const img of images) {
+        if (img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
+      }
+    };
+  });
+
   // Response body derivations
   let responseContentType = $derived(
     capture ? getContentType(capture.resp_headers) : "",
@@ -267,6 +302,50 @@
             </div>
           {/if}
         </details>
+
+        <!-- Request Images -->
+        {#if requestImages.length > 0}
+          <details class="group" open>
+            <summary
+              class="cursor-pointer font-semibold text-sm uppercase tracking-wider text-muted-foreground hover:text-foreground"
+            >
+              Request Images ({requestImages.length})
+            </summary>
+            <div class="mt-2 flex flex-wrap gap-3">
+              {#each requestImages as img, i}
+                <a
+                  href={img.src}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open full size in a new tab"
+                  class="flex w-48 flex-col overflow-hidden rounded-md border border-border bg-background hover:border-primary"
+                >
+                  <div class="flex h-48 items-center justify-center bg-muted/40">
+                    <img
+                      src={img.src}
+                      alt="Request image #{i + 1}"
+                      class="max-h-full max-w-full object-contain"
+                      onload={(e) => {
+                        const el = e.currentTarget as HTMLImageElement;
+                        imageInfo[img.src] = `${el.naturalWidth}×${el.naturalHeight}`;
+                      }}
+                      onerror={() => (imageInfo[img.src] = "failed to load")}
+                    />
+                  </div>
+                  <div class="border-t border-border px-2 py-1 font-mono text-xs">
+                    <div>#{i + 1} {img.mime || "remote URL"}</div>
+                    <div class="text-muted-foreground">
+                      {[imageInfo[img.src], img.bytes !== null ? formatFileSize(img.bytes) : ""]
+                        .filter(Boolean)
+                        .join(" · ") || "…"}
+                    </div>
+                    <div class="truncate text-muted-foreground" title={img.path}>{img.path}</div>
+                  </div>
+                </a>
+              {/each}
+            </div>
+          </details>
+        {/if}
 
         <!-- Response Headers -->
         <details class="group" open>
